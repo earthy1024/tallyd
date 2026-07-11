@@ -131,6 +131,36 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 	}
 }
 
+// TestCloseFlushesQueuedEventsBeforeLingerElapses proves the shutdown
+// path a graceful signal (SIGINT/SIGTERM) relies on: events still sitting
+// in the queue, well before their linger window or max-batch size would
+// have triggered a flush on their own, must still be sent before Close()
+// returns — not silently dropped.
+func TestCloseFlushesQueuedEventsBeforeLingerElapses(t *testing.T) {
+	ad := newFakeAdapter(100, nil) // always Ok; batch size never reached
+	acker := &fakeAcker{}
+	dlq := &fakeDLQ{}
+
+	// Linger is deliberately huge so only Close()'s drain-and-flush could
+	// possibly resolve these before the test's own timeout would.
+	b := batcher.New("orb", ad, time.Hour, acker, dlq, batcher.RetryPolicy{})
+
+	b.Enqueue(testEvent("evt-1"))
+	b.Enqueue(testEvent("evt-2"))
+
+	b.Close()
+
+	if got := ad.callCount(); got != 1 {
+		t.Fatalf("adapter Send called %d times, want exactly 1 (one final flush on Close)", got)
+	}
+	for _, id := range []string{"evt-1", "evt-2"} {
+		call, ok := acker.find(id)
+		if !ok || call.disposition != adapter.Ok {
+			t.Errorf("%s: expected Ok ack after Close, got %+v (ok=%v)", id, call, ok)
+		}
+	}
+}
+
 func TestFlushesOnMaxBatchSize(t *testing.T) {
 	ad := newFakeAdapter(2, nil) // always Ok
 	acker := &fakeAcker{}
