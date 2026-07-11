@@ -4,6 +4,7 @@ package receiver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -67,12 +68,29 @@ func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
 	}
 
 	now := r.Now()
+	providers := make([][]string, len(events))
 	for i, e := range events {
 		if err := validate(e, now); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		events[i] = enrich(e, now)
+
+		p := events[i].Route
+		if len(p) == 0 {
+			p = r.Router.Route(events[i])
+		}
+		if len(p) == 0 {
+			// An event with nowhere to go must not be durably accepted:
+			// nothing would ever Ack it, so it would sit in the WAL
+			// unresolved forever instead of just failing loudly now.
+			http.Error(w, fmt.Sprintf(
+				"event %q (event_name=%q) matches no provider route and no default route is configured",
+				events[i].ID, events[i].EventName,
+			), http.StatusBadRequest)
+			return
+		}
+		providers[i] = p
 	}
 
 	// Durably append every event before acking the caller. If any append
@@ -80,12 +98,8 @@ func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
 	// has no way to know which prefix already landed, and retrying a
 	// mixture of new and already-durable events is safe because the
 	// event ID is the provider-side idempotency key.
-	for _, e := range events {
-		providers := e.Route
-		if len(providers) == 0 {
-			providers = r.Router.Route(e)
-		}
-		if err := r.Sink.Append(e, providers); err != nil {
+	for i, e := range events {
+		if err := r.Sink.Append(e, providers[i]); err != nil {
 			http.Error(w, "failed to durably persist event", http.StatusServiceUnavailable)
 			return
 		}

@@ -103,6 +103,28 @@ func TestMissingCustomerIDRejected(t *testing.T) {
 	}
 }
 
+func TestNoMatchingRouteRejected(t *testing.T) {
+	sink := &fakeSink{failFrom: -1}
+	// No default and no rules: every event resolves to zero providers.
+	r := receiver.New(sink, &receiver.StaticRouter{})
+	r.Now = func() time.Time { return time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC) }
+
+	evt := adapter.Event{
+		ID:         "evt-1",
+		CustomerID: "cust_1",
+		EventName:  "api_call",
+		Timestamp:  time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC),
+	}
+
+	rec := doPost(t, r.Handler(), evt)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if len(sink.appended) != 0 {
+		t.Fatalf("sink.appended = %+v, want none (must reject before durably writing an unroutable event)", sink.appended)
+	}
+}
+
 func TestFarFutureTimestampRejected(t *testing.T) {
 	sink := &fakeSink{failFrom: -1}
 	r := newTestReceiver(sink)
