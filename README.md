@@ -31,6 +31,24 @@ curl -X POST http://127.0.0.1:8999/v1/events \
 
 Metrics are served at `/metrics`.
 
+### gRPC
+
+Events can also be emitted over gRPC instead of HTTP — same validation,
+routing, and durability guarantees either way (both transports call the
+same core `receiver.Ingest`). Disabled by default; enable it via
+`listen.grpc` in config or `-grpc-listen host:port`. Schema:
+[`proto/tallyd/v1/events.proto`](proto/tallyd/v1/events.proto).
+
+```sh
+./tallyd -config config.yaml -grpc-listen 127.0.0.1:9000
+```
+
+```sh
+grpcurl -plaintext -proto proto/tallyd/v1/events.proto \
+  -d '{"events":[{"id":"evt-1","customer_id":"cust_1","event_name":"api_call","timestamp":"2026-07-11T12:00:00Z"}]}' \
+  127.0.0.1:9000 tallyd.v1.Events/Ingest
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Commits require DCO sign-off

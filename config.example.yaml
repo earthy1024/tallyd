@@ -2,6 +2,8 @@
 # environment.
 listen:
   http: "127.0.0.1:8999"
+  # grpc: "127.0.0.1:9000"  # uncomment to also accept events over gRPC;
+                            # leave unset/empty to disable it entirely
 
 buffer:
   dir: ./data/wal

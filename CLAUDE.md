@@ -17,6 +17,15 @@ Run a single test:
 go test ./internal/wal/... -run TestCrashRecovery -v
 ```
 
+Regenerate gRPC code after editing `proto/tallyd/v1/events.proto` (requires `protoc`, `protoc-gen-go`, `protoc-gen-go-grpc` on `PATH`):
+
+```sh
+protoc -I proto -I "$(brew --prefix protobuf)/include" \
+  --go_out=. --go_opt=module=github.com/earthy1024/tallyd \
+  --go-grpc_out=. --go-grpc_opt=module=github.com/earthy1024/tallyd \
+  proto/tallyd/v1/events.proto
+```
+
 Run the daemon locally:
 
 ```sh
@@ -42,6 +51,8 @@ appends — never before. This is what makes it safe to treat a 2xx as "this
 event will survive a crash." `internal/wal/wal_test.go`'s
 `TestCrashRecovery` proves this by SIGKILLing a real subprocess mid-run
 and asserting replay recovers everything that was ever acked.
+
+**Two transports, one core**: `receiver.Receiver.Ingest([]adapter.Event) error` is the transport-agnostic core (validate → route → durably append) — both the HTTP handler (`handleEvents`, JSON decode) and `internal/grpcserver.Server` (protobuf decode, generated from `proto/tallyd/v1/events.proto`) are thin shims that convert into `[]adapter.Event` and call it, so validation/routing/durability behave identically no matter which transport an event arrived through. `Ingest` returns typed `*receiver.ValidationError` / `*receiver.UnavailableError` so each transport maps them to its own status codes (HTTP 400/503, gRPC `InvalidArgument`/`Unavailable`) without duplicating the classification logic. The gRPC listener is optional and off by default (`Config.Listen.GRPC` empty, or `pipeline.Pipeline.GRPCServer` nil) — `cmd/tallyd/main.go` only starts it if configured, and treats its shutdown the same way as the HTTP server's (`GracefulStop()` alongside `server.Shutdown()`). One easy-to-miss detail if you touch the gRPC conversion path: `(*timestamppb.Timestamp)(nil).AsTime()` returns Unix epoch, not Go's zero `time.Time{}` — `grpcserver.toEvents` explicitly checks for a nil `Timestamp` first, otherwise a client that omits it would silently skip the "timestamp is required" validation that the HTTP path correctly enforces.
 
 **Dual delivery paths, same durability boundary**: once an event is
 durable, `pipeline.walDispatchSink.Append` does two things — it's the
