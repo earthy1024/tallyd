@@ -80,16 +80,25 @@ adding a narrow interface at the consumer over introducing a new import.
 Metrics fields are always optional (nil-checked before use) so tests don't
 need to wire a `*metrics.Metrics` just to exercise business logic.
 
-**Only one real adapter exists**: `adapter.Adapter` is the vendor seam
-(`Encode`/`Send`/`Classify`/`MaxBatchSize`); `adapter/stdout` is the only
-implementation so far — it prints batches instead of calling a real
-billing API, which is enough to exercise the whole pipeline without
-vendor credentials. `internal/pipeline.buildAdapter` is the factory
-switch; adding Orb/Metronome means adding a case there plus a new
-`adapter/<name>` package, not touching the pipeline wiring itself.
-`internal/pipeline.ProviderConfig` already carries `Endpoint`/`TokenEnv`
-fields unused by `stdout`, so the config schema won't need to change when
-real adapters land.
+**Two adapters exist so far**: `adapter.Adapter` is the vendor seam
+(`Encode`/`Send`/`Classify`/`MaxBatchSize`). `adapter/stdout` prints
+batches instead of calling a real billing API, which is enough to
+exercise the whole pipeline without vendor credentials. `adapter/metronome`
+calls Metronome's real ingest API (`POST /v1/ingest`, Bearer token, JSON
+array of `transaction_id`/`customer_id`/`event_type`/`timestamp`/
+`properties`) — batch size is hard-capped at 100 regardless of config
+(`MaxBatchSize` constant) since that's Metronome's documented limit, not a
+tunable, and every property value gets stringified before sending
+(`stringifyProperties`) since Metronome requires that even for numbers and
+booleans. Its `Send` treats a 2xx as the whole batch accepted (Metronome's
+docs don't specify a per-event result body) and its `Classify` maps
+429/5xx/network errors to `Retry` and other 4xx to `DeadLetter`. Orb is
+the next adapter to add. `internal/pipeline.buildAdapter` is the factory
+switch — adding Orb means adding a case there plus a new `adapter/<name>`
+package, not touching the pipeline wiring itself.
+`internal/pipeline.ProviderConfig`'s `Endpoint`/`TokenEnv` fields (the
+latter resolved via `os.Getenv` in `buildAdapter`, erroring if unset) are
+what make this config-driven without code changes per provider.
 
 **Config**: `internal/pipeline/config.go` defines a YAML schema with a
 custom `Duration` type (`UnmarshalYAML` via `time.ParseDuration`, since

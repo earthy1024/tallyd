@@ -10,10 +10,10 @@ OpenTelemetry Collector or Fluent Bit, specialized for billing ingestion.
 ## Status
 
 Early. The receiver, WAL, dispatcher, batcher, retry/DLQ, and metrics
-pipeline work end-to-end today, but only a `stdout` adapter exists so
-far — it prints batches instead of calling a real billing API, which is
-enough to exercise the whole pipeline without vendor credentials. Orb
-and Metronome adapters are the next unit of work.
+pipeline work end-to-end today. Two adapters exist: `stdout` (prints
+batches instead of calling a real billing API, enough to exercise the
+whole pipeline without vendor credentials) and `metronome` (calls
+Metronome's real ingest API). Orb is the next unit of work.
 
 ## Quickstart
 

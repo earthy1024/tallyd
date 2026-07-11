@@ -6,10 +6,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/earthy1024/tallyd/adapter"
+	"github.com/earthy1024/tallyd/adapter/metronome"
 	"github.com/earthy1024/tallyd/adapter/stdout"
 	"github.com/earthy1024/tallyd/internal/batcher"
 	"github.com/earthy1024/tallyd/internal/dispatcher"
@@ -121,8 +123,18 @@ func buildAdapter(pc ProviderConfig) (adapter.Adapter, error) {
 			a.MaxBatch = pc.Batch.MaxEvents
 		}
 		return a, nil
+	case "metronome":
+		token := os.Getenv(pc.TokenEnv)
+		if token == "" {
+			return nil, fmt.Errorf("metronome: token_env %q is unset or empty", pc.TokenEnv)
+		}
+		a := metronome.New(pc.Endpoint, token)
+		if pc.Batch.MaxEvents > 0 {
+			a.MaxBatch = pc.Batch.MaxEvents
+		}
+		return a, nil
 	default:
-		return nil, fmt.Errorf("unsupported adapter type %q (only \"stdout\" is implemented so far; Orb/Metronome adapters are the next unit of work)", pc.Type)
+		return nil, fmt.Errorf("unsupported adapter type %q (only \"stdout\" and \"metronome\" are implemented so far; Orb is the next unit of work)", pc.Type)
 	}
 }
 
