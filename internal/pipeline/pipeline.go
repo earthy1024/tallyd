@@ -10,12 +10,16 @@ import (
 	"path/filepath"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"github.com/earthy1024/tallyd/adapter"
 	"github.com/earthy1024/tallyd/adapter/metronome"
 	"github.com/earthy1024/tallyd/adapter/stdout"
 	"github.com/earthy1024/tallyd/internal/batcher"
 	"github.com/earthy1024/tallyd/internal/dispatcher"
 	"github.com/earthy1024/tallyd/internal/dlq"
+	"github.com/earthy1024/tallyd/internal/grpcapi"
+	"github.com/earthy1024/tallyd/internal/grpcserver"
 	"github.com/earthy1024/tallyd/internal/metrics"
 	"github.com/earthy1024/tallyd/internal/receiver"
 	"github.com/earthy1024/tallyd/internal/wal"
@@ -30,6 +34,11 @@ type Pipeline struct {
 	Batchers   map[string]*batcher.Batcher
 	Dispatcher *dispatcher.Dispatcher
 	Receiver   *receiver.Receiver
+	// GRPCServer is nil when Config.Listen.GRPC is empty — the gRPC
+	// listener is entirely optional, off by default. When non-nil, the
+	// caller (cmd/tallyd) owns starting/stopping it, same as the HTTP
+	// server built from Handler().
+	GRPCServer *grpc.Server
 }
 
 // walDispatchSink durably appends an event to the WAL and, only once
@@ -104,6 +113,12 @@ func Build(cfg *Config) (*Pipeline, error) {
 	recv := receiver.New(&walDispatchSink{wal: w, disp: disp}, router)
 	recv.Metrics = m
 
+	var grpcServer *grpc.Server
+	if cfg.Listen.GRPC != "" {
+		grpcServer = grpc.NewServer()
+		grpcapi.RegisterEventsServer(grpcServer, grpcserver.New(recv))
+	}
+
 	return &Pipeline{
 		Config:     cfg,
 		WAL:        w,
@@ -112,6 +127,7 @@ func Build(cfg *Config) (*Pipeline, error) {
 		Batchers:   batchers,
 		Dispatcher: disp,
 		Receiver:   recv,
+		GRPCServer: grpcServer,
 	}, nil
 }
 

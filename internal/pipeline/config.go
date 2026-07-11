@@ -37,6 +37,9 @@ type Config struct {
 
 type ListenConfig struct {
 	HTTP string `yaml:"http"`
+	// GRPC is optional; leave empty to disable the gRPC listener entirely
+	// and run HTTP-only.
+	GRPC string `yaml:"grpc"`
 }
 
 type BufferConfig struct {

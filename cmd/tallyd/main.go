@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ func main() {
 func run() error {
 	configPath := flag.String("config", "", "path to YAML config file (defaults to built-in defaults if omitted)")
 	listenAddr := flag.String("listen", "", "override the HTTP listen address from config (host:port)")
+	grpcListenAddr := flag.String("grpc-listen", "", "override the gRPC listen address from config (host:port); gRPC stays disabled unless this or config's listen.grpc is set")
 	flag.Parse()
 
 	cfg, err := loadConfig(*configPath)
@@ -35,6 +37,9 @@ func run() error {
 	}
 	if *listenAddr != "" {
 		cfg.Listen.HTTP = *listenAddr
+	}
+	if *grpcListenAddr != "" {
+		cfg.Listen.GRPC = *grpcListenAddr
 	}
 
 	p, err := pipeline.Build(cfg)
@@ -48,9 +53,15 @@ func run() error {
 
 	server := &http.Server{Addr: cfg.Listen.HTTP, Handler: p.Handler()}
 
-	serverErrCh := make(chan error, 1)
+	// Buffered for 2: both the HTTP and (if enabled) gRPC goroutines can
+	// send here, but only the first is ever read by the select below. A
+	// graceful stop doesn't trigger a second send (grpc.Server.Serve
+	// returns nil, not an error, when GracefulStop causes it to return),
+	// but a genuine error from either server could still coincide with
+	// the other's send — size 1 would leave that sender blocked forever.
+	serverErrCh := make(chan error, 2)
 	go func() {
-		log.Printf("tallyd listening on %s", cfg.Listen.HTTP)
+		log.Printf("tallyd HTTP listening on %s", cfg.Listen.HTTP)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrCh <- err
 			return
@@ -58,13 +69,26 @@ func run() error {
 		serverErrCh <- nil
 	}()
 
+	if p.GRPCServer != nil {
+		grpcLis, err := net.Listen("tcp", cfg.Listen.GRPC)
+		if err != nil {
+			return fmt.Errorf("grpc listen on %s: %w", cfg.Listen.GRPC, err)
+		}
+		go func() {
+			log.Printf("tallyd gRPC listening on %s", cfg.Listen.GRPC)
+			if err := p.GRPCServer.Serve(grpcLis); err != nil {
+				serverErrCh <- err
+			}
+		}()
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case err := <-serverErrCh:
 		if err != nil {
-			return fmt.Errorf("http server: %w", err)
+			return fmt.Errorf("server error: %w", err)
 		}
 	case sig := <-sigCh:
 		log.Printf("received %s, shutting down", sig)
@@ -74,6 +98,9 @@ func run() error {
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("http server shutdown: %v", err)
+	}
+	if p.GRPCServer != nil {
+		p.GRPCServer.GracefulStop()
 	}
 
 	cancel() // stop gauge refresh loop

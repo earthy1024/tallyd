@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package tallyd.v1;
+
+option go_package = "github.com/earthy1024/tallyd/internal/grpcapi;grpcapi";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Event mirrors adapter.Event: a canonical, vendor-neutral billable
+// occurrence. See internal/receiver's conversion helpers for the mapping.
+message Event {
+  string id = 1;
+  string customer_id = 2;
+  string event_name = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  google.protobuf.Struct properties = 5;
+  // route optionally overrides routing-rule resolution, same as the
+  // JSON API's "route" field. Empty means "resolve via configured rules."
+  repeated string route = 6;
+}
+
+message IngestRequest {
+  repeated Event events = 1;
+}
+
+message IngestResponse {}
+
+// Events is tallyd's gRPC ingress, equivalent to POST /v1/events over
+// HTTP: same validation, routing, and durability guarantees, just a
+// different transport.
+service Events {
+  rpc Ingest(IngestRequest) returns (IngestResponse);
+}
