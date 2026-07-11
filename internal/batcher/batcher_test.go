@@ -3,6 +3,7 @@ package batcher_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -239,6 +240,109 @@ func TestRetryThenOk(t *testing.T) {
 	if dlq.count() != 0 {
 		t.Errorf("expected no dead-lettering, got %d", dlq.count())
 	}
+}
+
+// slowAdapter tracks how many Send calls are concurrently in-flight, to
+// prove a single Batcher never fires two provider requests at once even
+// when new events queue up faster than a slow provider responds.
+type slowAdapter struct {
+	maxBatch  int
+	sendDelay time.Duration
+
+	mu            sync.Mutex
+	sendCalls     int
+	concurrent    int
+	maxConcurrent int
+	batchSizes    []int
+}
+
+func (a *slowAdapter) Encode(events []adapter.Event) ([]byte, error) {
+	return json.Marshal(events)
+}
+
+func (a *slowAdapter) Send(_ context.Context, body []byte) (adapter.BatchResult, error) {
+	var events []adapter.Event
+	if err := json.Unmarshal(body, &events); err != nil {
+		return adapter.BatchResult{}, err
+	}
+
+	a.mu.Lock()
+	a.sendCalls++
+	a.concurrent++
+	if a.concurrent > a.maxConcurrent {
+		a.maxConcurrent = a.concurrent
+	}
+	a.batchSizes = append(a.batchSizes, len(events))
+	a.mu.Unlock()
+
+	time.Sleep(a.sendDelay)
+
+	a.mu.Lock()
+	a.concurrent--
+	a.mu.Unlock()
+
+	results := make([]adapter.EventResult, len(events))
+	for i, e := range events {
+		results[i] = adapter.EventResult{EventID: e.ID, Disposition: adapter.Ok}
+	}
+	return adapter.BatchResult{Results: results}, nil
+}
+
+func (a *slowAdapter) Classify(_ error, _ int) adapter.Disposition { return adapter.Retry }
+func (a *slowAdapter) MaxBatchSize() int                           { return a.maxBatch }
+
+func (a *slowAdapter) snapshot() (calls, maxConcurrent int, sizes []int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sendCalls, a.maxConcurrent, append([]int(nil), a.batchSizes...)
+}
+
+// TestNoConcurrentSendsForSameProvider answers a specific question about
+// the design: if 100 events arrive while a send to the provider is
+// already in flight, does a second request go out at the same time? No —
+// the Batcher's single run() goroutine calls flush() synchronously, so it
+// structurally cannot start a second Send until the first returns. The
+// 100 events queue up in the channel buffer and, once the first Send
+// completes, get coalesced into one subsequent batch — never sent
+// concurrently, and never sent one-by-one either.
+func TestNoConcurrentSendsForSameProvider(t *testing.T) {
+	// linger triggers the first (lone) flush; maxBatch is comfortably
+	// above 100 so the second flush coalesces all 100 queued events into
+	// a single batch rather than triggering on size.
+	ad := &slowAdapter{maxBatch: 200, sendDelay: 150 * time.Millisecond}
+	acker := &fakeAcker{}
+	dlq := &fakeDLQ{}
+
+	b := batcher.New("orb", ad, 20*time.Millisecond, acker, dlq, batcher.RetryPolicy{})
+	defer b.Close()
+
+	b.Enqueue(testEvent("evt-0"))
+	time.Sleep(40 * time.Millisecond) // let the linger-triggered first Send actually start
+
+	for i := 1; i <= 100; i++ {
+		b.Enqueue(testEvent(fmt.Sprintf("evt-%d", i)))
+	}
+
+	waitFor(t, 3*time.Second, func() bool {
+		for i := 1; i <= 100; i++ {
+			if _, ok := acker.find(fmt.Sprintf("evt-%d", i)); !ok {
+				return false
+			}
+		}
+		return true
+	})
+
+	calls, maxConcurrent, sizes := ad.snapshot()
+	if maxConcurrent != 1 {
+		t.Errorf("max concurrent Send calls = %d, want 1 (no concurrent sends to the same provider)", maxConcurrent)
+	}
+	if calls != 2 {
+		t.Errorf("Send called %d time(s), want exactly 2 (the lone kickoff event, then all 100 queued-while-busy events coalesced into one batch)", calls)
+	}
+	if len(sizes) == 2 && sizes[1] != 100 {
+		t.Errorf("second Send batch size = %d, want 100 (all events queued while the first Send was in flight)", sizes[1])
+	}
+	t.Logf("Send call batch sizes: %v", sizes)
 }
 
 func TestRetryBudgetExhaustion(t *testing.T) {
