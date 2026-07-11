@@ -56,23 +56,36 @@ func (r *Receiver) Handler() http.Handler {
 	return mux
 }
 
-func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
-	events, err := decodeEvents(req.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+// ValidationError means the request itself is malformed or unroutable —
+// retrying it unchanged will never succeed. Transports map this to their
+// own "bad request" status (HTTP 400, gRPC InvalidArgument).
+type ValidationError struct{ msg string }
+
+func (e *ValidationError) Error() string { return e.msg }
+
+// UnavailableError means ingest failed for a transient, infrastructure
+// reason (e.g. the WAL append failed) — the caller should retry as-is.
+// Transports map this to their own "unavailable" status (HTTP 503, gRPC
+// Unavailable).
+type UnavailableError struct{ msg string }
+
+func (e *UnavailableError) Error() string { return e.msg }
+
+// Ingest runs the transport-agnostic core: validate, enrich, route, then
+// durably append every event before returning. Both the HTTP handler and
+// any other transport (e.g. gRPC) call this so behavior — validation
+// rules, routing, durability — is identical regardless of how an event
+// arrived.
+func (r *Receiver) Ingest(events []adapter.Event) error {
 	if len(events) == 0 {
-		http.Error(w, "no events in request body", http.StatusBadRequest)
-		return
+		return &ValidationError{msg: "no events in request"}
 	}
 
 	now := r.Now()
 	providers := make([][]string, len(events))
 	for i, e := range events {
 		if err := validate(e, now); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			return &ValidationError{msg: err.Error()}
 		}
 		events[i] = enrich(e, now)
 
@@ -84,11 +97,10 @@ func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
 			// An event with nowhere to go must not be durably accepted:
 			// nothing would ever Ack it, so it would sit in the WAL
 			// unresolved forever instead of just failing loudly now.
-			http.Error(w, fmt.Sprintf(
+			return &ValidationError{msg: fmt.Sprintf(
 				"event %q (event_name=%q) matches no provider route and no default route is configured",
 				events[i].ID, events[i].EventName,
-			), http.StatusBadRequest)
-			return
+			)}
 		}
 		providers[i] = p
 	}
@@ -100,14 +112,35 @@ func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
 	// event ID is the provider-side idempotency key.
 	for i, e := range events {
 		if err := r.Sink.Append(e, providers[i]); err != nil {
-			http.Error(w, "failed to durably persist event", http.StatusServiceUnavailable)
-			return
+			return &UnavailableError{msg: "failed to durably persist event"}
 		}
 	}
 
 	if r.Metrics != nil {
 		r.Metrics.RecordEventsReceived(len(events))
 	}
+	return nil
+}
+
+func (r *Receiver) handleEvents(w http.ResponseWriter, req *http.Request) {
+	events, err := decodeEvents(req.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := r.Ingest(events); err != nil {
+		status := http.StatusInternalServerError
+		switch err.(type) {
+		case *ValidationError:
+			status = http.StatusBadRequest
+		case *UnavailableError:
+			status = http.StatusServiceUnavailable
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
 	w.WriteHeader(http.StatusAccepted)
 }
 

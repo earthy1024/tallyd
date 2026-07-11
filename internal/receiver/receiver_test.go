@@ -103,6 +103,40 @@ func TestMissingCustomerIDRejected(t *testing.T) {
 	}
 }
 
+func TestIngestDirectlyReturnsTypedErrors(t *testing.T) {
+	sink := &fakeSink{failFrom: -1}
+	r := newTestReceiver(sink)
+
+	if err := r.Ingest(nil); err == nil {
+		t.Fatal("expected error for empty event list")
+	} else if _, ok := err.(*receiver.ValidationError); !ok {
+		t.Errorf("empty list: got %T, want *ValidationError", err)
+	}
+
+	badEvt := []adapter.Event{{ID: "evt-1", EventName: "api_call", Timestamp: time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)}}
+	if err := r.Ingest(badEvt); err == nil {
+		t.Fatal("expected error for missing customer_id")
+	} else if _, ok := err.(*receiver.ValidationError); !ok {
+		t.Errorf("missing customer_id: got %T, want *ValidationError", err)
+	}
+
+	failSink := &fakeSink{failFrom: 0}
+	rFail := newTestReceiver(failSink)
+	goodEvt := []adapter.Event{{ID: "evt-1", CustomerID: "cust_1", EventName: "api_call", Timestamp: time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)}}
+	if err := rFail.Ingest(goodEvt); err == nil {
+		t.Fatal("expected error when sink fails")
+	} else if _, ok := err.(*receiver.UnavailableError); !ok {
+		t.Errorf("sink failure: got %T, want *UnavailableError", err)
+	}
+
+	if err := r.Ingest(goodEvt); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if len(sink.appended) != 1 || sink.appended[0].ID != "evt-1" {
+		t.Fatalf("sink.appended = %+v, want one event evt-1", sink.appended)
+	}
+}
+
 func TestNoMatchingRouteRejected(t *testing.T) {
 	sink := &fakeSink{failFrom: -1}
 	// No default and no rules: every event resolves to zero providers.
