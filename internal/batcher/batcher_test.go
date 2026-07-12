@@ -100,6 +100,7 @@ func (f *fakeAcker) find(eventID string) (ackCall, bool) {
 
 type dlqCall struct {
 	provider, eventID, reason string
+	permanent                 bool
 }
 
 type fakeDLQ struct {
@@ -108,13 +109,13 @@ type fakeDLQ struct {
 	failWith error // if set, Put returns this instead of recording the call
 }
 
-func (f *fakeDLQ) Put(provider string, event adapter.Event, reason string) error {
+func (f *fakeDLQ) Put(provider string, event adapter.Event, reason string, permanent bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	f.puts = append(f.puts, dlqCall{provider, event.ID, reason})
+	f.puts = append(f.puts, dlqCall{provider, event.ID, reason, permanent})
 	return nil
 }
 

@@ -22,9 +22,13 @@ type Acker interface {
 }
 
 // DeadLetterSink durably parks an event that a provider permanently
-// rejected or that exhausted its retry budget, e.g. *dlq.DLQ.
+// rejected or that exhausted its retry budget, e.g. *dlq.DLQ. permanent
+// distinguishes a failure unlikely to succeed on replay without
+// intervention (provider rejection, encode error) from one that just ran
+// out of retry time — the sink may apply a lower poison threshold to the
+// former.
 type DeadLetterSink interface {
-	Put(provider string, event adapter.Event, reason string) error
+	Put(provider string, event adapter.Event, reason string, permanent bool) error
 }
 
 // MetricsRecorder is optional; a nil Metrics field records nothing.
@@ -235,7 +239,7 @@ func (b *Batcher) flush(batch []queued) {
 	body, err := b.Adapter.Encode(events)
 	if err != nil {
 		for _, q := range batch {
-			b.deadLetter(q, fmt.Sprintf("encode error: %v", err))
+			b.deadLetter(q, fmt.Sprintf("encode error: %v", err), true) // encode errors are a code/data bug, not transient
 		}
 		return
 	}
@@ -284,14 +288,14 @@ func (b *Batcher) resolve(q queued, disposition adapter.Disposition, cause error
 		if cause != nil {
 			reason = cause.Error()
 		}
-		b.deadLetter(q, reason)
+		b.deadLetter(q, reason, true) // provider said "don't retry this"
 	default: // Retry
 		if time.Since(q.firstQueue) >= b.Retry.withDefaults().MaxElapsed {
 			reason := "retry budget exhausted"
 			if cause != nil {
 				reason = fmt.Sprintf("retry budget exhausted: %v", cause)
 			}
-			b.deadLetter(q, reason)
+			b.deadLetter(q, reason, false) // ran out of time, not necessarily a bad payload
 			return
 		}
 		b.scheduleRetry(q)
@@ -313,12 +317,12 @@ func (b *Batcher) ack(q queued, disposition adapter.Disposition) {
 	}
 }
 
-func (b *Batcher) deadLetter(q queued, reason string) {
+func (b *Batcher) deadLetter(q queued, reason string, permanent bool) {
 	// Same visibility rationale as ack above: a failed DLQ write isn't
 	// fatal (the event still gets ack'd DeadLetter and won't be retried
 	// forever), but it means the event's audit trail didn't actually get
 	// written anywhere, which is worth knowing about.
-	if err := b.DLQ.Put(b.Provider, q.event, reason); err != nil && b.Logger != nil {
+	if err := b.DLQ.Put(b.Provider, q.event, reason, permanent); err != nil && b.Logger != nil {
 		b.Logger.Printf("batcher[%s]: failed to write event %s to DLQ (reason=%q): %v",
 			b.Provider, q.event.ID, reason, err)
 	}
