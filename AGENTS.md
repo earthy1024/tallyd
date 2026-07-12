@@ -21,8 +21,8 @@ Regenerate gRPC code after editing `proto/tallyd/v1/events.proto` (requires `pro
 
 ```sh
 protoc -I proto -I "$(brew --prefix protobuf)/include" \
-  --go_out=. --go_opt=module=github.com/earthy1024/tallyd \
-  --go-grpc_out=. --go-grpc_opt=module=github.com/earthy1024/tallyd \
+  --go_out=. --go_opt=module=github.com/tallyd/tallyd \
+  --go-grpc_out=. --go-grpc_opt=module=github.com/tallyd/tallyd \
   proto/tallyd/v1/events.proto
 ```
 
