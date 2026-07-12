@@ -93,6 +93,34 @@ past that window risks double-counting, so exhausted retries dead-letter
 instead of looping forever), and DLQ handoff. A slow/down provider only
 backs up its own queue, never a healthy one's.
 
+**Dead-lettering is terminal, and the DLQ isn't just an append-only
+log**: `batcher.deadLetter` passes a `permanent bool` into
+`DeadLetterSink.Put` — `true` for a provider-rejected or encode-error
+failure (unlikely to succeed on replay without intervention), `false` for
+retry-budget-exhausted (failed on time, not necessarily on the payload).
+`internal/dlq.DLQ` tracks a cumulative `Attempts` count per (provider,
+event ID), reconstructed from disk on restart, not just in-memory —
+once it crosses its category's threshold (`permanentPoisonThreshold=2`,
+`exhaustedPoisonThreshold=3`, neither configurable yet), the event moves
+to a separate `<provider>.poison.jsonl` file and its earlier non-poisoned
+record is purged from the regular file (`List()` must never return a
+stale, superseded entry for an ID that's since been poisoned — this was
+a real bug caught by testing the poison-threshold logic itself). Replay
+is `POST /v1/dlq/replay?provider=X[&include_poison=true]`
+(`internal/dlqreplay`) or the `tallyd dlq replay` CLI wrapper around it:
+reads `List()` (and `ListPoison()` if requested), re-`Append`s each event
+through the same `Sink` the receiver uses — targeting *only* the provider
+being replayed, not the event's original full route — and `Remove()`s
+whichever ones were durably re-queued. A successful replay means
+"durably re-queued," the same "accepted" guarantee as a fresh
+`POST /v1/events`, not confirmation of delivery; if it fails again it
+produces a brand-new DLQ record with the attempt count continuing from
+where it left off. `dlqreplay.Handler.KnownProviders` rejects an unknown
+provider name before ever touching the DLQ or WAL — otherwise the event
+would get durably re-appended before dispatch failed on it, leaving a
+permanently-stuck WAL entry, the same failure mode
+`pipeline.validateRouting` exists to prevent on the normal ingest path.
+
 **Up to `defaultMaxInFlight` (4) sends run concurrently per provider,
 bounded, not unbounded**: `run()`'s single goroutine still owns `pending`
 and the linger timer, but `flush()` spawns each Send as its own goroutine

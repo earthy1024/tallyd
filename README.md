@@ -85,6 +85,36 @@ adapters' worst-case send timeout, and remember the WAL directory must
 be on a volume that survives the restart for replay to have anything
 to recover.
 
+## Dead-letter queue and replay
+
+A permanently rejected event (bad payload, provider says no) or one that
+exhausted its retry budget gets dead-lettered to
+`<buffer.dir>/dlq/<provider>.jsonl`, one JSON line per event, with a
+running `attempts` count. An event that fails repeatedly enough moves to
+`<provider>.poison.jsonl` instead (2 attempts for a permanent-looking
+failure, 3 for a retry-exhausted one) and is excluded from replay unless
+you ask for it.
+
+Replay via the CLI (a thin client for the admin endpoint below):
+
+```sh
+tallyd dlq replay -provider metronome
+tallyd dlq replay -provider metronome -include-poison
+tallyd dlq replay -provider metronome -addr http://127.0.0.1:8999
+```
+
+Or hit the endpoint directly:
+
+```sh
+curl -X POST 'http://127.0.0.1:8999/v1/dlq/replay?provider=metronome'
+```
+
+Replay re-injects each event through the same durable path a fresh
+`POST /v1/events` uses, targeting only the provider being replayed — a
+`replayed` response means "durably re-queued," not "confirmed
+delivered." If it fails again, it lands back in the DLQ as a new record
+with the attempt count continuing from where it left off.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Commits require DCO sign-off
