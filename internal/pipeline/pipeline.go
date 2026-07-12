@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -92,6 +93,7 @@ func Build(cfg *Config) (*Pipeline, error) {
 		}
 		b := batcher.New(name, ad, pc.Batch.Linger.Duration, w, dq, retry)
 		b.Metrics = m
+		b.Logger = log.Default()
 		enqueuers[name] = b
 		batchers[name] = b
 	}

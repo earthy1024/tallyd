@@ -3,7 +3,9 @@ package batcher_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -70,13 +72,17 @@ type ackCall struct {
 }
 
 type fakeAcker struct {
-	mu    sync.Mutex
-	acked []ackCall
+	mu       sync.Mutex
+	acked    []ackCall
+	failWith error // if set, Ack returns this instead of recording the call
 }
 
 func (f *fakeAcker) Ack(eventID, provider string, disposition adapter.Disposition) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
 	f.acked = append(f.acked, ackCall{eventID, provider, disposition})
 	return nil
 }
@@ -97,13 +103,17 @@ type dlqCall struct {
 }
 
 type fakeDLQ struct {
-	mu   sync.Mutex
-	puts []dlqCall
+	mu       sync.Mutex
+	puts     []dlqCall
+	failWith error // if set, Put returns this instead of recording the call
 }
 
 func (f *fakeDLQ) Put(provider string, event adapter.Event, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
 	f.puts = append(f.puts, dlqCall{provider, event.ID, reason})
 	return nil
 }
@@ -214,6 +224,77 @@ func TestDeadLetterDisposition(t *testing.T) {
 	call, ok := acker.find("evt-1")
 	if !ok || call.disposition != adapter.DeadLetter {
 		t.Errorf("expected evt-1 acked DeadLetter, got %+v (ok=%v)", call, ok)
+	}
+}
+
+type fakeLogger struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (f *fakeLogger) Printf(format string, args ...any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messages = append(f.messages, fmt.Sprintf(format, args...))
+}
+
+func (f *fakeLogger) snapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.messages...)
+}
+
+// TestLogsAckFailure proves a durable-ack failure — previously silently
+// swallowed — now gets reported through the optional Logger instead of
+// only being inferable from a stuck wal_unacked_entries metric.
+func TestLogsAckFailure(t *testing.T) {
+	ad := newFakeAdapter(10, nil) // always Ok
+	acker := &fakeAcker{failWith: errors.New("wal closed")}
+	dlq := &fakeDLQ{}
+	logger := &fakeLogger{}
+
+	b := batcher.New("orb", ad, 5*time.Millisecond, acker, dlq, batcher.RetryPolicy{})
+	b.Logger = logger
+	defer b.Close()
+
+	b.Enqueue(testEvent("evt-1"))
+
+	waitFor(t, time.Second, func() bool { return len(logger.snapshot()) > 0 })
+
+	msgs := logger.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("got %d log messages, want 1: %v", len(msgs), msgs)
+	}
+	if !strings.Contains(msgs[0], "evt-1") || !strings.Contains(msgs[0], "wal closed") {
+		t.Errorf("log message = %q, want it to mention evt-1 and the underlying error", msgs[0])
+	}
+}
+
+// TestLogsDLQWriteFailure proves a failed DLQ write is also reported,
+// separately from the ack-failure path above.
+func TestLogsDLQWriteFailure(t *testing.T) {
+	ad := newFakeAdapter(10, func(string, int) adapter.Disposition { return adapter.DeadLetter })
+	acker := &fakeAcker{}
+	dlq := &fakeDLQ{failWith: errors.New("disk full")}
+	logger := &fakeLogger{}
+
+	b := batcher.New("orb", ad, 5*time.Millisecond, acker, dlq, batcher.RetryPolicy{})
+	b.Logger = logger
+	defer b.Close()
+
+	b.Enqueue(testEvent("evt-1"))
+
+	waitFor(t, time.Second, func() bool { return len(logger.snapshot()) > 0 })
+
+	msgs := logger.snapshot()
+	found := false
+	for _, m := range msgs {
+		if strings.Contains(m, "DLQ") && strings.Contains(m, "disk full") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a DLQ-write-failure log message, got: %v", msgs)
 	}
 }
 

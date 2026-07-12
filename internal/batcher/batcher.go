@@ -35,6 +35,13 @@ type MetricsRecorder interface {
 	RecordSendError(provider string, disposition adapter.Disposition)
 }
 
+// Logger is optional; a nil Logger means ack/DLQ-write failures are
+// still swallowed (same as before this existed), just without anywhere
+// to report them. *log.Logger satisfies this structurally.
+type Logger interface {
+	Printf(format string, args ...any)
+}
+
 // RetryPolicy controls exponential backoff + jitter, and caps total retry
 // duration below the provider's dedup window so a redelivered event can
 // never double-count.
@@ -98,6 +105,7 @@ type Batcher struct {
 	DLQ      DeadLetterSink
 	Retry    RetryPolicy
 	Metrics  MetricsRecorder // optional
+	Logger   Logger          // optional
 
 	in      chan queued
 	closeCh chan struct{}
@@ -293,17 +301,27 @@ func (b *Batcher) resolve(q queued, disposition adapter.Disposition, cause error
 func (b *Batcher) ack(q queued, disposition adapter.Disposition) {
 	// A durable-ack failure here leaves the WAL entry pending, which is
 	// safe under at-least-once delivery (it will simply be redelivered)
-	// but currently invisible to operators.
-	// TODO: surface via logging instead of silently dropping.
-	_ = b.Acker.Ack(q.event.ID, b.Provider, disposition)
+	// rather than lost — but an operator should still be able to see it
+	// happening instead of only inferring it from a climbing
+	// wal_unacked_entries gauge.
+	if err := b.Acker.Ack(q.event.ID, b.Provider, disposition); err != nil && b.Logger != nil {
+		b.Logger.Printf("batcher[%s]: failed to durably ack event %s (disposition=%s): %v",
+			b.Provider, q.event.ID, disposition, err)
+	}
 	if b.Metrics != nil {
 		b.Metrics.RecordAck(b.Provider, disposition)
 	}
 }
 
 func (b *Batcher) deadLetter(q queued, reason string) {
-	// Same best-effort caveat as ack above.
-	_ = b.DLQ.Put(b.Provider, q.event, reason)
+	// Same visibility rationale as ack above: a failed DLQ write isn't
+	// fatal (the event still gets ack'd DeadLetter and won't be retried
+	// forever), but it means the event's audit trail didn't actually get
+	// written anywhere, which is worth knowing about.
+	if err := b.DLQ.Put(b.Provider, q.event, reason); err != nil && b.Logger != nil {
+		b.Logger.Printf("batcher[%s]: failed to write event %s to DLQ (reason=%q): %v",
+			b.Provider, q.event.ID, reason, err)
+	}
 	b.ack(q, adapter.DeadLetter)
 }
 
