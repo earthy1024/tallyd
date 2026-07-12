@@ -10,10 +10,10 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/internal/grpcapi"
-	"github.com/earthy1024/tallyd/internal/grpcserver"
-	"github.com/earthy1024/tallyd/internal/receiver"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/internal/grpcapi"
+	"github.com/tallyd/tallyd/internal/grpcserver"
+	"github.com/tallyd/tallyd/internal/receiver"
 )
 
 type fakeIngester struct {

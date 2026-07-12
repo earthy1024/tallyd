@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/internal/grpcapi"
-	"github.com/earthy1024/tallyd/internal/receiver"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/internal/grpcapi"
+	"github.com/tallyd/tallyd/internal/receiver"
 )
 
 // Ingester is the subset of *receiver.Receiver this server depends on.

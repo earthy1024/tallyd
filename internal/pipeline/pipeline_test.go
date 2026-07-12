@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/earthy1024/tallyd/internal/pipeline"
+	"github.com/tallyd/tallyd/internal/pipeline"
 )
 
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {

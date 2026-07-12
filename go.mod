@@ -1,4 +1,4 @@
-module github.com/earthy1024/tallyd
+module github.com/tallyd/tallyd
 
 go 1.26.5
 

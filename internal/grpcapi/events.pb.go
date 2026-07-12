@@ -211,7 +211,7 @@ const file_tallyd_v1_events_proto_rawDesc = "" +
 	"\x06events\x18\x01 \x03(\v2\x10.tallyd.v1.EventR\x06events\"\x10\n" +
 	"\x0eIngestResponse2G\n" +
 	"\x06Events\x12=\n" +
-	"\x06Ingest\x12\x18.tallyd.v1.IngestRequest\x1a\x19.tallyd.v1.IngestResponseB7Z5github.com/earthy1024/tallyd/internal/grpcapi;grpcapib\x06proto3"
+	"\x06Ingest\x12\x18.tallyd.v1.IngestRequest\x1a\x19.tallyd.v1.IngestResponseB3Z1github.com/tallyd/tallyd/internal/grpcapi;grpcapib\x06proto3"
 
 var (
 	file_tallyd_v1_events_proto_rawDescOnce sync.Once

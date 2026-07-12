@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/earthy1024/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter"
 )
 
 const defaultMaxBatchSize = 500

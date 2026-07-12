@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tallyd.v1;
 
-option go_package = "github.com/earthy1024/tallyd/internal/grpcapi;grpcapi";
+option go_package = "github.com/tallyd/tallyd/internal/grpcapi;grpcapi";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";

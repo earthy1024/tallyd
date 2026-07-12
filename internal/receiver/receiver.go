@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter"
 )
 
 // maxFutureTimestamp rejects events timestamped further in the future than

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/adapter/metronome"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter/metronome"
 )
 
 func testEvent() adapter.Event {

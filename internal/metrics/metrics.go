@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/earthy1024/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter"
 )
 
 // ErrBufferFull is returned by Append when the WAL's total on-disk size

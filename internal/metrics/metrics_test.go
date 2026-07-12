@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/internal/metrics"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/internal/metrics"
 )
 
 func scrape(t *testing.T, m *metrics.Metrics) string {

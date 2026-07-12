@@ -1,6 +1,6 @@
 package receiver
 
-import "github.com/earthy1024/tallyd/adapter"
+import "github.com/tallyd/tallyd/adapter"
 
 // Rule routes events matching EventName to Providers. An empty EventName
 // never matches and is reserved for the router's Default.

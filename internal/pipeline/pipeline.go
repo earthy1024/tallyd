@@ -13,17 +13,17 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/adapter/metronome"
-	"github.com/earthy1024/tallyd/adapter/stdout"
-	"github.com/earthy1024/tallyd/internal/batcher"
-	"github.com/earthy1024/tallyd/internal/dispatcher"
-	"github.com/earthy1024/tallyd/internal/dlq"
-	"github.com/earthy1024/tallyd/internal/grpcapi"
-	"github.com/earthy1024/tallyd/internal/grpcserver"
-	"github.com/earthy1024/tallyd/internal/metrics"
-	"github.com/earthy1024/tallyd/internal/receiver"
-	"github.com/earthy1024/tallyd/internal/wal"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter/metronome"
+	"github.com/tallyd/tallyd/adapter/stdout"
+	"github.com/tallyd/tallyd/internal/batcher"
+	"github.com/tallyd/tallyd/internal/dispatcher"
+	"github.com/tallyd/tallyd/internal/dlq"
+	"github.com/tallyd/tallyd/internal/grpcapi"
+	"github.com/tallyd/tallyd/internal/grpcserver"
+	"github.com/tallyd/tallyd/internal/metrics"
+	"github.com/tallyd/tallyd/internal/receiver"
+	"github.com/tallyd/tallyd/internal/wal"
 )
 
 // Pipeline holds every component wired together and ready to serve.

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/internal/receiver"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/internal/receiver"
 )
 
 type fakeSink struct {

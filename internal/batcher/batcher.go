@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/earthy1024/tallyd/adapter"
+	"github.com/tallyd/tallyd/adapter"
 )
 
 // Acker durably records a terminal disposition (Ok or DeadLetter) for one

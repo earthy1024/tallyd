@@ -6,8 +6,8 @@ package dispatcher
 import (
 	"fmt"
 
-	"github.com/earthy1024/tallyd/adapter"
-	"github.com/earthy1024/tallyd/internal/wal"
+	"github.com/tallyd/tallyd/adapter"
+	"github.com/tallyd/tallyd/internal/wal"
 )
 
 // Enqueuer accepts events for eventual delivery to one provider. Satisfied
