@@ -28,6 +28,20 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 2 && os.Args[1] == "dlq" && os.Args[2] == "show" {
+		if err := runDLQShow(os.Args[3:]); err != nil {
+			fmt.Fprintln(os.Stderr, "tallyd:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "status" {
+		if err := runStatus(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "tallyd:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tallyd:", err)
@@ -72,6 +86,72 @@ func runDLQReplay(args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dlq replay: server returned %s", resp.Status)
+	}
+	return nil
+}
+
+// runDLQShow implements `tallyd dlq show`, a thin client for the running
+// daemon's GET /v1/dlq admin endpoint.
+func runDLQShow(args []string) error {
+	fs := flag.NewFlagSet("dlq show", flag.ExitOnError)
+	provider := fs.String("provider", "", "provider name to show dead-lettered events for (required)")
+	addr := fs.String("addr", "http://127.0.0.1:8999", "tallyd HTTP address")
+	includePoison := fs.Bool("include-poison", false, "also show poisoned (repeatedly-failed) entries")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *provider == "" {
+		return fmt.Errorf("dlq show: -provider is required")
+	}
+
+	q := url.Values{"provider": {*provider}}
+	if *includePoison {
+		q.Set("include_poison", "true")
+	}
+	showURL := fmt.Sprintf("%s/v1/dlq?%s", *addr, q.Encode())
+
+	resp, err := http.Get(showURL)
+	if err != nil {
+		return fmt.Errorf("dlq show: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("dlq show: read response: %w", err)
+	}
+	fmt.Println(string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("dlq show: server returned %s", resp.Status)
+	}
+	return nil
+}
+
+// runStatus implements `tallyd status`, a thin client for the running
+// daemon's GET /v1/status admin endpoint.
+func runStatus(args []string) error {
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	addr := fs.String("addr", "http://127.0.0.1:8999", "tallyd HTTP address")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/v1/status", *addr))
+	if err != nil {
+		return fmt.Errorf("status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("status: read response: %w", err)
+	}
+	fmt.Println(string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status: server returned %s", resp.Status)
 	}
 	return nil
 }

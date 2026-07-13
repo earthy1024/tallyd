@@ -120,6 +120,20 @@ provider name before ever touching the DLQ or WAL — otherwise the event
 would get durably re-appended before dispatch failed on it, leaving a
 permanently-stuck WAL entry, the same failure mode
 `pipeline.validateRouting` exists to prevent on the normal ingest path.
+`internal/dlqshow` is the read-only counterpart: `GET /v1/dlq?provider=X
+[&include_poison=true]` (`tallyd dlq show` CLI wrapper) returns the same
+records replay would act on, without re-injecting anything — lets you see
+what's dead-lettered before deciding whether to replay it. Same
+`KnownProviders` gate, same `Store` interface subset (`List`/`ListPoison`)
+as `dlqreplay.Handler`.
+
+**`internal/status` answers "what's backed up" without parsing Prometheus
+text**: `GET /v1/status` (`tallyd status` CLI wrapper) returns
+`wal_unacked_entries` plus a per-provider `{depth, poison_depth}` breakdown
+computed from `DLQ.List`/`DLQ.ListPoison` at request time (not the
+periodically-refreshed `/metrics` gauges) — `status.Handler.Providers` is
+the full configured provider list so every provider shows up even at zero
+depth, not just ones that happen to have DLQ files on disk yet.
 
 **Up to `defaultMaxInFlight` (4) sends run concurrently per provider,
 bounded, not unbounded**: `run()`'s single goroutine still owns `pending`

@@ -15,6 +15,23 @@ batches instead of calling a real billing API, enough to exercise the
 whole pipeline without vendor credentials) and `metronome` (calls
 Metronome's real ingest API). Orb is the next unit of work.
 
+## Install
+
+```sh
+go install github.com/tallyd/tallyd/cmd/tallyd@latest
+```
+
+Installs to `$(go env GOPATH)/bin` (usually `~/go/bin`). Make sure that
+directory is on your `PATH` — e.g. add this to `~/.zshrc` or `~/.bashrc`:
+
+```sh
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Then `tallyd` (and `tallyd dlq replay ...`) works from anywhere, no path
+needed. No tagged release is required — Go resolves a pseudo-version from
+the latest commit on the module.
+
 ## Quickstart
 
 ```sh
@@ -85,6 +102,22 @@ adapters' worst-case send timeout, and remember the WAL directory must
 be on a volume that survives the restart for replay to have anything
 to recover.
 
+## Status
+
+`tallyd status` gives a quick JSON snapshot of what's backed up — WAL
+entries not yet acked by every target provider, and each provider's DLQ
+depth (regular and poisoned) — without scraping `/metrics`' Prometheus
+text format:
+
+```sh
+tallyd status
+tallyd status -addr http://127.0.0.1:8999
+```
+
+```sh
+curl 'http://127.0.0.1:8999/v1/status'
+```
+
 ## Dead-letter queue and replay
 
 A permanently rejected event (bad payload, provider says no) or one that
@@ -94,6 +127,17 @@ running `attempts` count. An event that fails repeatedly enough moves to
 `<provider>.poison.jsonl` instead (2 attempts for a permanent-looking
 failure, 3 for a retry-exhausted one) and is excluded from replay unless
 you ask for it.
+
+Inspect what's dead-lettered before deciding to replay it:
+
+```sh
+tallyd dlq show -provider metronome
+tallyd dlq show -provider metronome -include-poison
+```
+
+```sh
+curl 'http://127.0.0.1:8999/v1/dlq?provider=metronome'
+```
 
 Replay via the CLI (a thin client for the admin endpoint below):
 

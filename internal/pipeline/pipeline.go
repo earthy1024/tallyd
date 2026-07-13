@@ -20,10 +20,12 @@ import (
 	"github.com/tallyd/tallyd/internal/dispatcher"
 	"github.com/tallyd/tallyd/internal/dlq"
 	"github.com/tallyd/tallyd/internal/dlqreplay"
+	"github.com/tallyd/tallyd/internal/dlqshow"
 	"github.com/tallyd/tallyd/internal/grpcapi"
 	"github.com/tallyd/tallyd/internal/grpcserver"
 	"github.com/tallyd/tallyd/internal/metrics"
 	"github.com/tallyd/tallyd/internal/receiver"
+	"github.com/tallyd/tallyd/internal/status"
 	"github.com/tallyd/tallyd/internal/wal"
 )
 
@@ -37,6 +39,8 @@ type Pipeline struct {
 	Dispatcher *dispatcher.Dispatcher
 	Receiver   *receiver.Receiver
 	DLQReplay  *dlqreplay.Handler
+	DLQShow    *dlqshow.Handler
+	Status     *status.Handler
 	// GRPCServer is nil when Config.Listen.GRPC is empty — the gRPC
 	// listener is entirely optional, off by default. When non-nil, the
 	// caller (cmd/tallyd) owns starting/stopping it, same as the HTTP
@@ -128,10 +132,14 @@ func Build(cfg *Config) (*Pipeline, error) {
 	recv.Metrics = m
 
 	knownProviders := make(map[string]bool, len(cfg.Providers))
+	providerNames := make([]string, 0, len(cfg.Providers))
 	for name := range cfg.Providers {
 		knownProviders[name] = true
+		providerNames = append(providerNames, name)
 	}
 	replay := &dlqreplay.Handler{Sink: sink, DLQ: dq, KnownProviders: knownProviders}
+	show := &dlqshow.Handler{DLQ: dq, KnownProviders: knownProviders}
+	stat := &status.Handler{WAL: w, DLQ: dq, Providers: providerNames}
 
 	var grpcServer *grpc.Server
 	if cfg.Listen.GRPC != "" {
@@ -148,6 +156,8 @@ func Build(cfg *Config) (*Pipeline, error) {
 		Dispatcher: disp,
 		Receiver:   recv,
 		DLQReplay:  replay,
+		DLQShow:    show,
+		Status:     stat,
 		GRPCServer: grpcServer,
 	}, nil
 }
@@ -197,11 +207,14 @@ func buildAdapter(pc ProviderConfig) (adapter.Adapter, error) {
 }
 
 // Handler returns the top-level HTTP handler: POST /v1/events,
-// GET /metrics, and POST /v1/dlq/replay?provider=X[&include_poison=true].
+// GET /metrics, GET /v1/status, GET /v1/dlq?provider=X[&include_poison=true],
+// and POST /v1/dlq/replay?provider=X[&include_poison=true].
 func (p *Pipeline) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", p.Receiver.Handler())
 	mux.Handle("/metrics", p.Metrics.Handler())
+	mux.Handle("/v1/status", p.Status)
+	mux.Handle("/v1/dlq", p.DLQShow)
 	mux.Handle("/v1/dlq/replay", p.DLQReplay)
 	return mux
 }
